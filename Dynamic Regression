@@ -1,26 +1,30 @@
 //@version=5
-indicator("Dynamic Regression - Fair Value by Liquidity (100-Day Calendar Lag) w/ +3σ", overlay=true)
+indicator("TSLA Fair Value by Liquidity (100-Day Calendar Lag) w/ +3σ & Offset", overlay=true)
 
 // ── INPUTS ─────────────────────────────────────────────────────────────────────────
-regLen     = input.int(252,   title="Regression Length (bars)",           minval=10)
-lagDays    = input.int(100,   title="Liquidity Lag (calendar days)",      minval=1)
-searchBars = input.int(300,   title="Max Bars to Search for Lagged Liquidity", minval=1)
+regLen     = input.int(252, title="Regression Length (bars)",               minval=10)
+lagDays    = input.int(100, title="Liquidity Lag (calendar days)",          minval=1)
+searchBars = input.int(300, title="Max Bars to Search for Lagged Liquidity", minval=1)
+// Use your trading-day lag here (e.g. ~68)
+offsetBars = input.int(0,  title="Plot Offset (bars)",                     minval=0)
 
-// ── TSLA DATA ───────────────────────────────────────────────────────────────────────
+// ── TSLA PRICE ─────────────────────────────────────────────────────────────────────
 price = close
 
 // ── LIQUIDITY COMPONENTS ────────────────────────────────────────────────────────────
 getS(sym) =>
-    request.security(sym, "D", close, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+    request.security(sym, "D", close,
+                     gaps=barmerge.gaps_off,
+                     lookahead=barmerge.lookahead_off)
 
-m2    = getS("FRED:M2SL")
-eum2  = getS("ECONOMICS:EUM2") * getS("FX:EURUSD")
-cnm2  = getS("ECONOMICS:CNM2") * getS("FX_IDC:CNYUSD")
-jpm2  = getS("ECONOMICS:JPM2") * getS("FX_IDC:JPYUSD")
-ukm2  = getS("ECONOMICS:GBM2") * getS("FX:GBPUSD")
+m2     = getS("FRED:M2SL")
+eum2   = getS("ECONOMICS:EUM2") * getS("FX:EURUSD")
+cnm2   = getS("ECONOMICS:CNM2") * getS("FX_IDC:CNYUSD")
+jpm2   = getS("ECONOMICS:JPM2") * getS("FX_IDC:JPYUSD")
+ukm2   = getS("ECONOMICS:GBM2") * getS("FX:GBPUSD")
 liqRaw = m2 + eum2 + cnm2 + jpm2 + ukm2
 
-// ── FIND THE BAR INDEX FOR T–lagDays ────────────────────────────────────────────────
+// ── FIND THE LIQUIDITY VALUE LAGGED lagDays CALENDAR DAYS ──────────────────────────
 targetTime = time - lagDays * 24 * 60 * 60 * 1000
 
 var float liq   = na
@@ -32,7 +36,7 @@ for i = 1 to searchBars
         liq   := liqRaw[i]
         found := true
 
-// ── ROLLING OLS (liquidity → TSLA) ─────────────────────────────────────────────────
+// ── ROLLING OLS (liq → TSLA) ───────────────────────────────────────────────────────
 meanX   = ta.sma(liq,   regLen)
 meanY   = ta.sma(price, regLen)
 covXY   = ta.sma(liq * price, regLen) - meanX * meanY
@@ -41,28 +45,28 @@ slope   = covXY / varX
 inter   = meanY - slope * meanX
 fairVal = inter + slope * liq
 
-// ── RESIDUAL BANDS ─────────────────────────────────────────────────────────────────
+// ── σ-BANDS ─────────────────────────────────────────────────────────────────────────
 resid   = price - fairVal
 sigma   = ta.stdev(resid, regLen)
-upper1  = fairVal + sigma
+upper1  = fairVal +      sigma
 upper2  = fairVal + 2 * sigma
 upper3  = fairVal + 3 * sigma
-lower1  = fairVal - sigma
+lower1  = fairVal -      sigma
 lower2  = fairVal - 2 * sigma
-// optional lower3 = fairVal - 3 * sigma
+// lower3 = fairVal - 3 * sigma  // if desired
 
-// ── PLOTTING ────────────────────────────────────────────────────────────────────────
-pFair = plot(fairVal,  color=color.blue,      title="Fair Value")
-pU1   = plot(upper1,   color=color.green,     title="+1σ")
-pU2   = plot(upper2,   color=color.new(color.green, 80), title="+2σ")
-pU3   = plot(upper3,   color=color.new(color.green, 60), title="+3σ")
-pL1   = plot(lower1,   color=color.red,       title="-1σ")
-pL2   = plot(lower2,   color=color.new(color.red,   80), title="-2σ")
-// plot(lower3, color=color.new(color.red,40), title="-3σ")  // if you want –3σ
+// ── PLOTTING (shift forward by offsetBars) ──────────────────────────────────────────
+pFair = plot(fairVal,  offset=offsetBars, color=color.blue,      title="Fair Value")
+pU1   = plot(upper1,   offset=offsetBars, color=color.green,     title="+1σ")
+pU2   = plot(upper2,   offset=offsetBars, color=color.new(color.green,80), title="+2σ")
+pU3   = plot(upper3,   offset=offsetBars, color=color.new(color.green,60), title="+3σ")
+pL1   = plot(lower1,   offset=offsetBars, color=color.red,       title="-1σ")
+pL2   = plot(lower2,   offset=offsetBars, color=color.new(color.red,80),   title="-2σ")
+// plot(lower3,       offset=offsetBars, color=color.new(color.red,40),  title="-3σ")  // if desired
 
-// fills
-fill(pU1, pL1, color=color.new(color.gray, 70),  title="±1σ Band")
-fill(pU2, pU1, color=color.new(color.gray, 80),  title="+1σ to +2σ Band")
-fill(pU3, pU2, color=color.new(color.gray, 80), title="+2σ to +3σ Band")
-fill(pL1, pL2, color=color.new(color.gray, 75),  title="-1σ to -2σ Band")
-// fill(pL2, pL3, color=color.new(color.gray,100), title="-2σ to -3σ Band")  // if you add lower3
+// ── FILL THE BANDS ─────────────────────────────────────────────────────────────────
+fill(pU1, pL1, color=color.new(color.gray, 80),  title="±1σ Band")
+fill(pU2, pU1, color=color.new(color.gray, 95),  title="+1σ→+2σ Band")
+fill(pU3, pU2, color=color.new(color.gray, 95),  title="+2σ→+3σ Band")
+fill(pL1, pL2, color=color.new(color.gray, 90),  title="-1σ→-2σ Band")
+// fill(pL2, pL3, color=color.new(color.gray,100), title="-2σ→-3σ Band")  // if you add lower3
