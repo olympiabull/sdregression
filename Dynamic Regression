@@ -1,5 +1,5 @@
 //@version=5
-indicator("TSLA Fair Value by Liquidity (100-Day Calendar Lag) w/ +3σ", overlay=true)
+indicator("Dynamic Regression - Fair Value by Liquidity (100-Day Calendar Lag) w/ +3σ", overlay=true)
 
 // ── INPUTS ─────────────────────────────────────────────────────────────────────────
 regLen     = input.int(252,   title="Regression Length (bars)",           minval=10)
